@@ -1,0 +1,68 @@
+name: Build Android APK
+ 
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+ 
+permissions:
+  contents: write
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+ 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+ 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+ 
+      - name: Install dependencies
+        run: npm install
+ 
+      - name: Add Android platform (first time only) and commit it to the repo
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add android
+            git commit -m "Add generated android project (auto)" || echo "nothing to commit"
+            git push
+          fi
+ 
+      - name: Copy custom alarm sound into the Android project (if provided)
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          SRC=$(ls sound/alarm_tone.* 2>/dev/null | head -n 1 || true)
+          if [ -n "$SRC" ]; then
+            echo "Found custom sound: $SRC"
+            cp "$SRC" "android/app/src/main/res/raw/$(basename "$SRC")"
+          else
+            echo "No custom sound found in sound/ folder, using default notification sound."
+          fi
+ 
+      - name: Sync web assets into native project
+        run: npx cap sync android
+ 
+      - name: Grant execute permission to gradlew
+        run: chmod +x android/gradlew
+ 
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --stacktrace
+ 
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyReminders-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
